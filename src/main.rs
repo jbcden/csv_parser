@@ -10,6 +10,7 @@ const F_LEN: i32 = 1411070052;
 
 fn main() {
     let count = Arc::new(Mutex::new(0));
+    let (tx, rx) = mpsc::channel();
 
     let csv = match std::fs::File::open("../FINAL.csv") {
         Ok(f) => f,
@@ -21,7 +22,6 @@ fn main() {
     let buf_read = BufReader::new(&csv);
     let lines = Rc::new(RefCell::new(buf_read.lines()));
 
-    let mut handles = vec![];
     let mut c = 0;
     let cloned = lines.clone();
     let mut reader = cloned.borrow_mut();
@@ -31,34 +31,37 @@ fn main() {
             Err(_) => continue,
         };
 
-        // println!("MOOSE");
-
-        let count = count.clone();
         {
-            let handle = thread::spawn(move || {
+            let (count, tx) = (count.clone(), tx.clone());
+            thread::spawn(move || {
                 let length = parse_line(line);
 
-                let mut count: i32 = match count.lock() {
+                let count: i32 = match count.lock() {
                     Ok(c) => *c,
                     Err(_) => 0,
                 };
-                count += length;
+                let answer = count + length;
 
+                match tx.send(answer) {
+                    Ok(_) => (),
+                    Err(_) => println!("ERROR!!!!!"),
+                };
             });
-            handles.push(handle);
-            // println!("TEST");
-            c += 1;
-            if c % 1_000_000 == 0 {
-                println!("APPLES");
-            }
+        }
+        c += 1;
+        if c % 1_000_000 == 0 {
+            println!("APPLES");
         }
     }
 
-    for h in handles {
-        h.join();
-    }
-
     println!("PANDA TEST");
+    for _ in 0..F_LEN {
+        let res = match rx.recv() {
+            Ok(n) => n,
+            Err(_) => -2
+        };
+        println!("RES: {}", res);
+    }
 
     // Total: 617_806_098
     // println!("Total: {}", count);
@@ -67,10 +70,10 @@ fn main() {
 fn parse_line(line: String) -> i32 {
     let mut split = line.split(",");
     let parsed_string = split.nth(1)
-        .map_or("0".to_string(), |s| s.replace("\"", ""));
+                             .map_or("0".to_string(), |s| s.replace("\"", ""));
     let line_length = parsed_string.parse::<i32>();
-    match line_length {
-        Ok(len) => len,
-        Err(_) => 0,
-    }
+     match line_length {
+         Ok(len) => len,
+         Err(_) => 0,
+     }
 }
